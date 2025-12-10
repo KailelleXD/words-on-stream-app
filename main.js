@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, nativeImage, shell, globalShortcut } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename);
 let mainWindow = null;
 let tray = null;
 
-const CAL_URL = 'https://wos.gg/system';
+const CAL_URL = 'https://wos.gg/';
+// const CAL_URL = 'https://wos.gg/system';
 
 async function createWindow() {
   // dynamically import electron-store only when needed
@@ -35,13 +36,52 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      partition: 'persist:calendar'   // <-- persistent partition
+      partition: 'persist:wordsonstream'   // <-- persistent partition
     },
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
-    // Increase magnification to 125%
-    mainWindow.webContents.setZoomFactor(1.1);
+    mainWindow.webContents.executeJavaScript(`
+      function clickEl(el) {
+        if (el) {
+          el.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+        }
+      }
+
+      // Step 1: Twitch button after 1s
+      setTimeout(() => {
+        const twitchBtn = document.querySelector('.Button_icon-twitch__VzzrQ');
+        clickEl(twitchBtn);
+      }, 1000);
+
+      // Step 2: Close + YES buttons after 3s
+      setTimeout(() => {
+        const closeBtn = document.querySelector('.SmallButton_smallButton__rVDHP.SmallButton_icoClose__A7UKF');
+        clickEl(closeBtn);
+
+        // Watch for YES button to appear
+        const observer = new MutationObserver(() => {
+          const yesBtn = Array.from(document.querySelectorAll('button'))
+            .find(btn => btn.textContent.trim() === 'YES');
+          if (yesBtn) {
+            clickEl(yesBtn);
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      }, 3000);
+
+      // Step 3: EXIT button after 3s (separate instance)
+      setTimeout(() => {
+        const exitBtn = Array.from(document.querySelectorAll('button'))
+          .find(btn => btn.textContent.trim() === 'EXIT');
+        clickEl(exitBtn);
+      }, 3000);
+    `);
   });
 
   // After the page loads, override any title changes
@@ -58,16 +98,87 @@ async function createWindow() {
 
   mainWindow.loadURL(CAL_URL);
 
+  // Maximize the window immediately after creation
+  mainWindow.maximize();
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
 
-    // Auto-refresh every 1 hour
-    const ONE_HOUR = 60 * 60 * 1000;
-    setInterval(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.reload();
-      }
-    }, ONE_HOUR);
+  // Register global shortcut here
+  globalShortcut.register('Ctrl+Alt+Shift+R', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // Step 1: Reload the page
+      mainWindow.webContents.reloadIgnoringCache();
+
+      // Step 2: After reload completes, run the sequence
+      mainWindow.webContents.once('did-finish-load', () => {
+        mainWindow.webContents.executeJavaScript(`
+          function clickEl(el) {
+            if (el) {
+              el.dispatchEvent(new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window
+              }));
+            }
+          }
+
+          // Twitch button after 1s
+          setTimeout(() => {
+            const twitchBtn = document.querySelector('.Button_icon-twitch__VzzrQ');
+            clickEl(twitchBtn);
+          }, 1000);
+
+          // Close + YES buttons after 5s
+          setTimeout(() => {
+            const closeBtn = document.querySelector('.SmallButton_smallButton__rVDHP.SmallButton_icoClose__A7UKF');
+            clickEl(closeBtn);
+
+            // YES button: watch until it appears
+            const observer = new MutationObserver(() => {
+              const yesBtn = Array.from(document.querySelectorAll('button'))
+                .find(btn => btn.textContent.trim() === 'YES');
+              if (yesBtn) {
+                clickEl(yesBtn);
+                observer.disconnect();
+              }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+          }, 5000);
+
+          // EXIT button after 7s (separate instance)
+          setTimeout(() => {
+            const exitBtn = Array.from(document.querySelectorAll('button'))
+              .find(btn => btn.textContent.trim() === 'EXIT');
+            clickEl(exitBtn);
+          }, 7000);
+        `);
+      });
+    }
+  });
+
+  // Plain reload on Ctrl+Alt+Shift+X
+  globalShortcut.register('Ctrl+Alt+Shift+X', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reloadIgnoringCache();
+    }
+  });
+
+    // // Register global shortcut here
+    // globalShortcut.register('Ctrl+Alt+Shift+R', () => {
+    //   if (mainWindow && !mainWindow.isDestroyed()) {
+    //     // Step 1: Reload the page
+    //     mainWindow.webContents.reloadIgnoringCache();
+    //   }
+    // });
+
+    // // Auto-refresh every 1 hour
+    // const ONE_HOUR = 60 * 60 * 1000;
+    // setInterval(() => {
+    //   if (mainWindow && !mainWindow.isDestroyed()) {
+    //     mainWindow.reload();
+    //   }
+    // }, ONE_HOUR);
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
       shell.openExternal(url);
@@ -125,9 +236,20 @@ async function createWindow() {
       // Tray optional
     }
   }); // <-- closes ready-to-show callback
+
+  mainWindow.on('close', () => {
+    if (!mainWindow.isMinimized() && !mainWindow.isMaximized()) {
+      store.set('bounds', mainWindow.getBounds());
+    }
+  });
 } // <-- closes createWindow function
 
 app.whenReady().then(createWindow);
+
+app.on('will-quit', () => {
+  // Unregister all shortcuts when quitting
+  globalShortcut.unregisterAll();
+});
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
