@@ -22,36 +22,33 @@ async function createWindow() {
     y: undefined,
   });
 
-mainWindow = new BrowserWindow({
-  width,
-  height,
-  x,
-  y,
-  title: "Words on Stream - App Wrapper",  // verbatim string
-  backgroundColor: '#ffffff',
-  show: false,
-  autoHideMenuBar: true,
-  webPreferences: {
-    nodeIntegration: false,
-    contextIsolation: true,
-    preload: path.join(__dirname, 'preload.js'),
-    partition: 'persist:wos'   // <-- persistent partition
-  },
-});
+  mainWindow = new BrowserWindow({
+    width,
+    height,
+    x,
+    y,
+    title: "Words on Stream - App Wrapper",  // verbatim string
+    backgroundColor: '#ffffff',
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+      partition: 'persist:calendar'   // <-- persistent partition
+    },
+  });
 
-// After the page loads, override any title changes
-mainWindow.webContents.on('page-title-updated', (event) => {
-  event.preventDefault(); // stop Google Calendar from changing it
-  mainWindow.setTitle("Words on Stream - App Wrapper");
-});
+  mainWindow.webContents.on('did-finish-load', () => {
+    // Increase magnification to 125%
+    mainWindow.webContents.setZoomFactor(1.1);
+  });
 
-// // 🔑 Reload on key press (here: "R")
-// mainWindow.webContents.on('before-input-event', (event, input) => {
-//   if (input.type === 'keyDown' && input.key.toLowerCase() === 'r') {
-//     mainWindow.reload();
-//   }
-// });
-
+  // After the page loads, override any title changes
+  mainWindow.webContents.on('page-title-updated', (event) => {
+    event.preventDefault(); // stop Google Calendar from changing it
+    mainWindow.setTitle("Words on Stream - App Wrapper");
+  });
 
   mainWindow.on('close', () => {
     if (!mainWindow.isMinimized() && !mainWindow.isMaximized()) {
@@ -61,73 +58,74 @@ mainWindow.webContents.on('page-title-updated', (event) => {
 
   mainWindow.loadURL(CAL_URL);
 
-mainWindow.once('ready-to-show', () => {
-  mainWindow.show();
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
 
-// Auto-refresh every 1 hour
-const ONE_HOUR = 60 * 60 * 1000;
-setInterval(() => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.reload();
-  }
-}, ONE_HOUR);
+    // Auto-refresh every 1 hour
+    const ONE_HOUR = 60 * 60 * 1000;
+    setInterval(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.reload();
+      }
+    }, ONE_HOUR);
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      shell.openExternal(url);
+      return { action: 'deny' };
+    });
 
-  mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.webContents.insertCSS(`
-      ::-webkit-scrollbar { width: 10px; height: 10px; }
-      ::-webkit-scrollbar-thumb { background: #c5c5c5; border-radius: 6px; }
-    `);
-  });
+    mainWindow.webContents.on('did-finish-load', () => {
+      mainWindow.webContents.insertCSS(`
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-thumb { background: #c5c5c5; border-radius: 6px; }
+      `);
+    });
 
-  const template = [
-    {
-      label: 'App',
-      submenu: [
-        { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
-        { label: 'Back', accelerator: 'Alt+Left', click: () => mainWindow.webContents.goBack() },
-        { label: 'Forward', accelerator: 'Alt+Right', click: () => mainWindow.webContents.goForward() },
-        { type: 'separator' },
-        { label: 'Toggle DevTools', accelerator: 'CmdOrCtrl+Shift+I', click: () => mainWindow.webContents.toggleDevTools() },
+    const template = [
+      {
+        label: 'App',
+        submenu: [
+          { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
+          { label: 'Back', accelerator: 'Alt+Left', click: () => mainWindow.webContents.goBack() },
+          { label: 'Forward', accelerator: 'Alt+Right', click: () => mainWindow.webContents.goForward() },
+          { type: 'separator' },
+          { label: 'Toggle DevTools', accelerator: 'CmdOrCtrl+Shift+I', click: () => mainWindow.webContents.toggleDevTools() },
+          { type: 'separator' },
+          { role: 'quit' },
+        ],
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+          { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'pasteAndMatchStyle' },
+          { role: 'selectAll' }
+        ],
+      }
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+
+    const iconPath = path.join(__dirname, 'icon.png');
+    try {
+      const trayIcon = nativeImage.createFromPath(iconPath);
+      tray = new Tray(trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon);
+      tray.setToolTip('Words on Stream');
+      tray.on('click', () => {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+      });
+      tray.setContextMenu(Menu.buildFromTemplate([
+        { label: 'Show', click: () => mainWindow.show() },
+        { label: 'Reload', click: () => mainWindow.reload() },
         { type: 'separator' },
         { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
-        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'pasteAndMatchStyle' },
-        { role: 'selectAll' }
-      ],
+      ]));
+    } catch (e) {
+      // Tray optional
     }
-  ];
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
-
-  const iconPath = path.join(__dirname, 'icon.png');
-  try {
-    const trayIcon = nativeImage.createFromPath(iconPath);
-    tray = new Tray(trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon);
-    tray.setToolTip('Google Calendar');
-    tray.on('click', () => {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-    });
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Show', click: () => mainWindow.show() },
-      { label: 'Reload', click: () => mainWindow.reload() },
-      { type: 'separator' },
-      { role: 'quit' },
-    ]));
-  } catch (e) {
-    // Tray optional
-  }
-}
+  }); // <-- closes ready-to-show callback
+} // <-- closes createWindow function
 
 app.whenReady().then(createWindow);
 
